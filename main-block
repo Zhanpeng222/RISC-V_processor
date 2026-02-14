@@ -1,0 +1,15 @@
+`timescale 1ns / 1ps
+
+module main(sum, carry,carryin, a, b);
+input a,b, carryin;
+output sum, carry;
+
+wire w1, w2, w3;
+
+xor sum1(w1, a, b);
+xor sum2(sum, w1, carryin); 
+and carry1(w2, a, b);
+and carry2(w3, w1, carryin);
+or or1(carry, w2, w3);
+
+endmodule
