@@ -1,35 +1,26 @@
 `timescale 1ns / 1ps
 
-module full_adder(a,b,carryin, sum, carry);
-input a,b, carryin;
-output sum, carry;
 
-wire w1, w2, w3;
+//main ALU block
+module alu(alu_operation, operand1, operand2, result);
+input[3:0] alu_operation;
+input[31:0] operand1, operand2;
+output reg [31:0] result;
 
-xor sum1(w1, a, b);
-xor sum2(sum, w1, carryin); 
-and carry1(w2, a, b);
-and carry2(w3, w1, carryin);
-or or1(carry, w2, w3);
-
-endmodule
-
-
-
-module full_add_8(a, b, carryin, sum, carry);
-input[7:0] a, b;
-input carryin;
-output carry;
-output[7:0] sum;
-wire c1, c2, c3, c4, c5, c6, c7;
-
-full_adder add_module0(a[0], b[0], carryin, sum[0], c1);
-full_adder add_module1(a[1], b[1], c1, sum[1], c2);
-full_adder add_module2(a[2], b[2], c2, sum[2], c3);
-full_adder add_module3(a[3], b[3], c3, sum[3], c4);
-full_adder add_module4(a[4], b[4], c4, sum[4], c5);
-full_adder add_module5(a[5], b[5], c5, sum[5], c6);
-full_adder add_module6(a[6], b[6], c6, sum[6], c7);
-full_adder add_module7(a[7], b[7], c7, sum[7], carry);
-
+//this alu block utilizes built in xilinx math functions
+always@(*)
+begin
+    case(alu_operation)
+        4'b0000: result = operand1 + operand2; //Add
+        4'b0001: result = operand1 - operand2; //Sub
+        4'b0010: result = operand1 & operand2; //And
+        4'b0011: result = operand1 | operand2; //Or
+        4'b0100: result = operand1 ^ operand2; //Xor
+        4'b0101: result = $signed(operand1) < $signed(operand2); //Signed less than or SLT
+        4'b0111: result = operand1 << operand2[4:0];//logical shift left or SLL
+        4'b1000: result = operand1 >> operand2[4:0];//logical shift right or SRL
+        4'b1001: result = $signed(operand1) >>> operand2[4:0];//arithmetic shift right or SRA
+        default: result = 32'd0;
+    endcase
+end
 endmodule
