@@ -1,2 +1,1 @@
-# ALU-block
-ALU for cpu
+RISC-V processor project
