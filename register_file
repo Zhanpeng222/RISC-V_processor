@@ -1,0 +1,32 @@
+`timescale 1ns / 1ps
+
+module register_file(
+input logic clk,
+input logic write,
+input logic [4:0]addr1,
+input logic [4:0]addr2,
+input logic [4:0]writeAddr,
+input logic [31:0]writeData,
+output logic [31:0]read1,
+output logic [31:0]read2
+    );
+    
+logic [7:0] regfile [7:0];
+
+integer i; 
+initial 
+    begin
+        for(i = 0; i < 8; i++) 
+        begin
+            regfile[i] = 0;
+        end
+    end
+
+assign read1 = regfile[addr1];
+assign read2 = regfile[addr2];
+always_ff@(posedge clk)begin
+    if(write)
+        regfile[writeAddr] <= writeData;    
+end
+
+endmodule
