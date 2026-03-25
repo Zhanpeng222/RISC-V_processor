@@ -1,0 +1,107 @@
+`timescale 1ns / 1ps
+
+module riscv_simple_datapath(
+    input clk,
+    input rst,
+    input [31:0]instruction,
+    input PCSrc,
+    input ALUSrc,
+    input RegWrite,
+    input MemtoReg,
+    input [3:0]ALUCtrl,
+    input loadPC,
+    output logic [31:0]PC,
+    output zero,
+    output [31:0]dAddress,
+    output [31:0]dWriteData,
+    input [31:0]dReadData,
+    output [31:0]WriteBackData
+    );
+
+logic [31:0]pc_plus4;
+logic [31:0]pc_target;
+logic [31:0]pc_next;
+logic [31:0]alu_op2, alu_result;
+
+logic [31:0]readReg1;
+logic [31:0]readReg2;
+logic [31:0]writeData;
+
+parameter INITIAL_PC = 32'h00400000;
+
+
+//Program Counter or the PC
+assign pc_plus4 = PC + 4;
+assign pc_next = (PCSrc) ? pc_target : pc_plus4;
+
+always_ff@(posedge clk)begin
+    if(rst)begin
+        PC <= INITIAL_PC;
+    end
+    else begin
+        if(loadPC) PC <= pc_next;
+    end
+end
+
+//Register File
+//using R-type instruction
+logic [4:0]rs1;
+logic [4:0]rs2;
+logic [4:0]rd;
+
+logic [31:0] imm_i;
+logic [31:0] imm_s;
+logic [31:0] branch_offset;
+
+assign rs1 = instruction[19:15];
+assign rs2 = instruction[24:20];
+assign rd = instruction[11:7];
+
+register_file rf(
+    .clk(clk),
+    .write(RegWrite),
+    .addr1(rs1),
+    .addr2(rs2),
+    .writeAddr(rd),
+    .writeData(writeData),
+    .read1(readReg1),
+    .read2(readReg2)
+    );
+
+//Immediate Generation
+//also need S and I type immediate along with B type for branch offset
+assign imm_i = {{20{instruction[31]}},instruction[31:20]};
+assign imm_s = {{20{instruction[31]}},instruction[31:25],instruction[11:7]};
+
+assign branch_offset = {
+    {20{instruction[31]}},
+    instruction[30:25],
+    instruction[11:8],
+    instruction[7],
+    1'b0
+    };
+
+
+assign pc_target = PC + branch_offset;
+//ALU instantiation
+assign alu_op2 = (ALUSrc) ? imm_i:readReg2;
+
+alu ALU(
+    .operand1(readReg1),
+    .operand2(alu_op2),
+    .alu_operation(ALUCtrl),
+    .result(alu_result)
+);
+
+assign zero = (alu_result == 0);
+
+//Memory Interface
+assign dWriteData = readReg2;
+assign dAddress = alu_result;  
+
+//Write back
+assign writeData = (MemtoReg) ? dReadData: alu_result;
+assign WriteBackData = writeData;
+
+endmodule
+
