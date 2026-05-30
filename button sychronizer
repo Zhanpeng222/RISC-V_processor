@@ -1,0 +1,38 @@
+`timescale 1ns / 1ps
+
+module button_conditioner(
+    input logic clk,
+    input logic btn_in,
+    output logic pulse_out
+    );
+    
+    logic sync0, sync1;
+    logic db, db_d;
+    logic [19:0] count;
+    
+    always_ff @(posedge clk)
+        begin
+            sync0 <= btn_in;
+            sync1 <= sync0;
+        end
+        
+    always_ff @(posedge clk)
+        begin
+           if(sync1 == db)begin
+            count <= 20'd0;
+           end else begin
+            count <= count + 1'b1;
+                if(count == 20'hFFFFF)begin
+                db <= sync1;
+                count <= 20'd0;
+                end
+             end
+        end
+        
+    always_ff @(posedge clk) begin
+        db_d <= db;
+    end
+
+    assign pulse_out = db & ~db_d;
+    
+endmodule
