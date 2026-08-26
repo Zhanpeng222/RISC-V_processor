@@ -1,0 +1,188 @@
+`timescale 1ns / 1ps
+
+module control_unit(
+        input logic clk,
+        input logic rst,
+        input logic [31:0]instruction,
+        input logic [31:0]dReadData,
+        output logic [31:0]PC,
+        output logic [31:0]dAddress,
+        output logic [31:0]dWriteData,
+        output logic MemRead,
+        output logic MemWrite,
+        output logic [31:0]WriteBackData
+    );
+    
+    PARAMETER INITIAL_PC  = 32'h0040_0000;
+    
+    datapath uut(
+        .clk(clk),
+        .rst(rst),
+        .PCSrc(PCSrc),
+        .ALUSrc(ALUSrc),
+        .RegWrite(RegWrite),
+        .MemtoReg(MemtoReg),
+        .ALUCtrl(ALUCtrl),
+        .loadPC(loadPC),
+        .zero(zero),
+        .PC(PC),
+        .instruction(instruction),
+        .dAddress(dAddress),
+        .dReadData(dReadData),
+        .dWriteData(dWriteData),
+        .WriteBackData(WriteBackData)
+    );
+    
+    localparam instruction_fetch = 3'b000;
+    localparam instruction_decode = 3'b001;
+    localparam execute = 3'b010;
+    localparam memory_access = 3'b011;
+    localparam write_back = 3'b100;
+    
+    localparam logic [3:0] ALU_ADD = 4'b0000;
+    localparam logic [3:0] ALU_SUB = 4'b0001;
+    
+    logic[2:0]current_state;
+    logic[2:0]next_state;
+    
+    always_comb begin
+        case(current_state)
+            instruction_fetch: next_state = instruction_decode;
+            instruction_decode: next_state = execute;
+            execute: next_state = memory_access;
+            memory_access: next_state = write_back;
+            write_back: next_state = instruction_fetch;
+            default: next_state = instruction_fetch;
+        endcase
+    end
+    
+    always_ff@(posedge clk or rst)begin
+        if(rst) current_state <= instruction_fetch;
+        else current_state <= next_state;
+    end
+    
+    logic opcode;
+    assign opcode = instruction[6:0];
+    
+    //Refer to RISCV website for opcode
+    logic ALUSrc;
+    logic MemtoReg;
+    logic [3:0]ALUCtrl;
+    always_comb begin
+        ALUCtrl = ALU_ADD;
+        case(opcode)
+            7'b0110011: 
+                begin
+                    ALUSrc = 1'b0; //Register ALU(same as R type instruction)
+                    MemtoReg = 1'b0;
+                    case(instruction[14:12])
+                        3'b000:
+                            begin
+                                if(instruction[30] == 1'b1) ALUCtrl = ALU_SUB; //ALU subtract
+                                else ALUCtrl = ALU_ADD; //ALU add
+                            end
+                        3'b001: ALUCtrl = 4'b0111; //SLL
+                        3'b010: ALUCtrl = 4'b0101; //SLT
+                        3'b100: ALUCtrl = 4'b0100; //XOR
+                        3'b101: 
+                            begin
+                                if(instruction[30] == 1'b1) ALUCtrl = 4'b1001; //SRA
+                                else ALUCtrl = 4'b1000; //SRL
+                            end
+                        3'b110: ALUCtrl = 4'b0011; //Or
+                        3'b111: ALUCtrl = 4'b0010; //And
+                        default: ALUCtrl = ALU_ADD;
+                    endcase
+                end
+            7'b0010011: 
+                begin
+                    ALUSrc = 1'b1; //Immediate ALU
+                    MemtoReg = 1'b0;
+                    //The bottom ALUCtrl determine the immediaate add, etc.
+                    case(instruction[14:12])
+                        3'b000: ALUCtrl = ALU_ADD;
+                        3'b001: ALUCtrl = 4'b0111;
+                        3'b010: ALUCtrl = 4'b0101;
+                        3'b100: ALUCtrl = 4'b0100;
+                        3'b101:
+                            begin
+                                if(instruction[30] == 1'b1) ALUCtrl = 4'b1001;
+                                else ALUCtrl = 4'b1000;
+                            end
+                        3'b110: ALUCtrl = 4'b0011;
+                        3'b111: ALUCtrl = 4'b0010;
+                        default: ALUCtrl = ALU_ADD;
+                    endcase
+                end
+            7'b0000011: 
+                begin 
+                    ALUSrc = 1'b1; //load 
+                    MemtoReg = 1'b1;
+                    ALUCtrl = ALU_ADD;
+                end 
+            7'b0100011:
+                begin
+                    ALUSrc = 1'b1; //store
+                    MemtoReg = 1'b0;
+                    ALUCtrl = ALU_ADD;
+                end
+            7'b1100011: 
+                begin
+                    ALUSrc = 1'b0; //branch
+                    MemtoReg = 1'b0;
+                    ALUCtrl = ALU_SUB;
+                end
+            default: 
+                begin
+                    ALUSrc = 1'b0;
+                    MemtoReg = 1'b0;
+                    ALUCtrl = ALU_ADD;
+                end
+        endcase
+    end
+    
+    //Deals with PCSrc
+    logic zero;
+    logic PCSrc;
+    logic loadPC;
+    always_comb begin
+        if(opcode == 7'b1100011 && zero == 1'b1) PCSrc = 1'b1;
+        else PCSrc = 1'b0;
+    end
+   
+    //Deals with loadPC
+    always_comb begin
+        if(current_state == write_back) loadPC = 1'b1;
+        else loadPC = 1'b0;
+    end
+    
+    //Deal with MemRead and MemWrite
+    logic RegWrite;
+    logic MemRead = 1'b0;
+    logic MemWrite = 1'b0;
+    always_comb begin
+        if(current_state == memory_access)
+            begin
+                if(opcode == 7'b0000011) MemRead = 1'b1;
+                else if(opcode == 7'b0100011) MemWrite = 1'b1;
+                else
+                    begin
+                        MemRead = 1'b0;
+                        MemWrite = 1'b0;
+                    end
+            end
+        else 
+            begin
+                MemRead = 1'b0;
+                MemWrite = 1'b0;
+            end
+    end
+    
+    //Deal with RegWrite
+    always_comb begin
+        if(current_state == write_back && (opcode == 7'b0000011 || opcode == 7'b0110011 || opcode == 7'b0010011)) RegWrite = 1'b1;
+        else RegWrite = 1'b0;
+    end
+    
+    
+endmodule
