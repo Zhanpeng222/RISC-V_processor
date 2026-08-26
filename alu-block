@@ -1,26 +1,32 @@
 `timescale 1ns / 1ps
 
-
 //main ALU block
-module alu(alu_operation, operand1, operand2, result);
-input[7:0] alu_operation;
-input[7:0] operand1, operand2;
-output reg [7:0] result;
+module alu(alu_operation, operand1, operand2, result, zero);
+input[3:0] alu_operation;
+input[31:0] operand1, operand2;
+output reg [31:0] result;
+output zero;
+
+localparam logic [3:0] ALU_ADD = 4'b0000;
+localparam logic [3:0] ALU_SUB = 4'b0001;
 
 //this alu block utilizes built in xilinx math functions
 always@(*)
 begin
     case(alu_operation)
-        2'b00: result = operand1 + operand2; //Add
-        2'b01: result = operand1 - operand2; //Sub
-        2'b10: result = operand1 & operand2; //And
-        2'b11: result = operand1 | operand2; //Or
-        //4'b0100: result = operand1 ^ operand2; //Xor
-        //4'b0101: result = $signed(operand1) < $signed(operand2); //Signed less than or SLT
-        //4'b0111: result = operand1 << operand2[4:0];//logical shift left or SLL
-        //4'b1000: result = operand1 >> operand2[4:0];//logical shift right or SRL
-        //4'b1001: result = $signed(operand1) >>> operand2[4:0];//arithmetic shift right or SRA
-        default: result = 8'b0;
+        4'b0000: result = operand1 + operand2; //Add
+        4'b0001: result = operand1 - operand2; //Sub
+        4'b0010: result = operand1 & operand2; //And
+        4'b0011: result = operand1 | operand2; //Or
+        4'b0100: result = operand1 ^ operand2; //Xor
+        4'b0101: result = $signed(operand1) < $signed(operand2); //Signed less than or SLT
+        4'b0111: result = operand1 << operand2[4:0];//logical shift left or SLL
+        4'b1000: result = operand1 >> operand2[4:0];//logical shift right or SRL
+        4'b1001: result = $signed(operand1) >>> operand2[4:0];//arithmetic shift right or SRA
+        default: result = 32'd0;
     endcase
 end
+
+assign zero = (result == 32'd0);
+
 endmodule
