@@ -1,6 +1,8 @@
 `timescale 1ns / 1ps
 
-module control_unit(
+module control_unit #(
+        parameter logic [31:0] INITIAL_PC = 32'h0040_0000
+        )(
         input logic clk,
         input logic rst,
         input logic [31:0]instruction,
@@ -13,9 +15,18 @@ module control_unit(
         output logic [31:0]WriteBackData
     );
     
-    PARAMETER INITIAL_PC  = 32'h0040_0000;
-    
-    datapath uut(
+    logic [6:0]opcode;
+    logic ALUSrc;
+    logic MemtoReg;
+    logic [3:0]ALUCtrl;
+    logic zero;
+    logic PCSrc;
+    logic loadPC;
+    logic RegWrite;
+        
+    datapath #(
+       .INITIAL_PC(INITIAL_PC)
+       )uut(
         .clk(clk),
         .rst(rst),
         .PCSrc(PCSrc),
@@ -56,18 +67,14 @@ module control_unit(
         endcase
     end
     
-    always_ff@(posedge clk or rst)begin
+    always_ff@(posedge clk)begin
         if(rst) current_state <= instruction_fetch;
         else current_state <= next_state;
     end
     
-    logic opcode;
     assign opcode = instruction[6:0];
     
     //Refer to RISCV website for opcode
-    logic ALUSrc;
-    logic MemtoReg;
-    logic [3:0]ALUCtrl;
     always_comb begin
         ALUCtrl = ALU_ADD;
         case(opcode)
@@ -142,9 +149,6 @@ module control_unit(
     end
     
     //Deals with PCSrc
-    logic zero;
-    logic PCSrc;
-    logic loadPC;
     always_comb begin
         if(opcode == 7'b1100011 && zero == 1'b1) PCSrc = 1'b1;
         else PCSrc = 1'b0;
@@ -157,25 +161,14 @@ module control_unit(
     end
     
     //Deal with MemRead and MemWrite
-    logic RegWrite;
-    logic MemRead = 1'b0;
-    logic MemWrite = 1'b0;
     always_comb begin
-        if(current_state == memory_access)
-            begin
-                if(opcode == 7'b0000011) MemRead = 1'b1;
-                else if(opcode == 7'b0100011) MemWrite = 1'b1;
-                else
-                    begin
-                        MemRead = 1'b0;
-                        MemWrite = 1'b0;
-                    end
-            end
-        else 
-            begin
-                MemRead = 1'b0;
-                MemWrite = 1'b0;
-            end
+        MemRead  = 1'b0;
+        MemWrite = 1'b0;
+
+        if (current_state == memory_access) begin
+            if (opcode == 7'b0000011) MemRead = 1'b1;
+            else if (opcode == 7'b0100011)MemWrite = 1'b1;
+        end
     end
     
     //Deal with RegWrite
@@ -183,6 +176,5 @@ module control_unit(
         if(current_state == write_back && (opcode == 7'b0000011 || opcode == 7'b0110011 || opcode == 7'b0010011)) RegWrite = 1'b1;
         else RegWrite = 1'b0;
     end
-    
     
 endmodule
