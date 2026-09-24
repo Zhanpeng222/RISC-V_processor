@@ -1,1 +1,306 @@
-//Pipeline in progress
+`timescale 1ns / 1ps
+
+module pipelined#(
+    parameter logic [31:0] INITIAL_PC = 32'h0000_3000
+    )(
+    input logic clk,
+    input logic rst,
+    output logic [31:0]PC,
+    input logic [31:0]instruction,
+    output logic [31:0]ALUResult,
+    output logic [31:0]dAddress,
+    output logic [31:0]dWriteData,
+    input logic [31:0]dReadData,
+    output logic MemRead,
+    output logic MemWrite,
+    output logic [31:0]WriteBackData
+    );
+    
+    localparam logic [3:0]ALU_ADD = 4'b0000;
+    localparam logic [3:0]ALU_SUB = 4'b0001;
+    
+    logic id_Branch;
+    logic id_MemRead;
+    logic id_MemWrite;
+    logic id_RegWrite;
+    logic id_MemtoReg;
+    logic id_ALUSrc;
+    logic [3:0]id_ALUCtrl;
+    
+    logic ex_Branch;
+    logic ex_MemRead;
+    logic ex_MemWrite;
+    logic ex_RegWrite;
+    logic ex_MemtoReg;
+    logic ex_ALUSrc;
+    logic [3:0]ex_ALUCtrl;
+    logic [4:0]ex_rd;
+    logic [31:0]ex_alu_result;
+    logic ex_zero;
+    
+    logic mem_Branch;
+    logic mem_MemRead;
+    logic mem_MemWrite;
+    logic mem_RegWrite;
+    logic mem_MemtoReg;
+    logic [4:0]mem_rd;
+    logic [31:0]mem_alu_result;
+    logic mem_zero;
+    logic [31:0]mem_branch_target;
+    logic [31:0]mem_write_data;
+    
+    logic wb_RegWrite;
+    logic wb_MemtoReg;
+    logic [4:0]wb_rd;
+    logic [31:0]wb_alu_result;
+
+    logic [31:0]if_PC;
+    logic [31:0]id_PC;
+    logic [31:0]PC_plus_4;
+    logic [31:0]next_PC;
+    logic mem_PCSrc;
+    
+    assign mem_PCSrc = mem_Branch && mem_zero;
+    
+    //Program counter 
+    assign PC = if_PC;
+    assign PC_plus_4 = if_PC + 32'd4;
+    always_comb begin
+        if(mem_PCSrc) next_PC = mem_branch_target;
+        else next_PC = PC_plus_4;
+    end
+    
+    logic [31:0] ex_PC;
+    logic [31:0] immEX;
+    logic [31:0] ex_imm_branch;
+    
+    
+    logic [31:0]readReg1;
+    logic [31:0]readReg2;
+    
+    
+    //Assigning immediate instruction
+    logic [4:0]rs1;
+    logic [4:0]rs2;
+    logic [4:0]rd;
+    assign rs1 = instruction[19:15];
+    assign rs2 = instruction[24:20];
+    assign rd = instruction[11:7];
+    
+    logic [31:0]immI;
+    logic [31:0]immS;
+    logic [31:0]immSBranch;
+    
+    assign immI = {{20{instruction[31]}},instruction[31:20]};
+    assign immS = {{20{instruction[31]}},instruction[31:25],instruction[11:7]};
+    assign immSBranch = {{19{instruction[31]}},instruction[31],instruction[7],instruction[30:25],instruction[11:8],1'b0};
+    
+    
+    //select immediate either S-type or I-type
+    //S-type store, I-type use immediate
+    logic [6:0]opcode;
+    assign opcode = instruction[6:0];
+    logic [31:0]selectedImmediate;
+    always_comb begin
+        if(opcode == 7'b0100011) selectedImmediate = immS;
+        else selectedImmediate = immI;
+    end
+    
+    //ALU operand either input 2 or select immdiate
+    logic [31:0]ex_alu_input_2;
+    always_comb begin
+        if(ex_ALUSrc == 1'b0)
+            ex_alu_input_2 = readReg2;
+        else
+            ex_alu_input_2 = immEX;
+    end
+    
+    assign ALUResult = ex_alu_result;
+    
+    alu alu_unit(
+        .alu_operation(ex_ALUCtrl),
+        .operand1(readReg1),
+        .operand2(ex_alu_input_2),
+        .result(ex_alu_result),
+        .zero(ex_zero)
+    );
+    
+    //Calculate branch target address
+    logic [31:0]ex_branch_target;
+    assign ex_branch_target = ex_PC + ex_imm_branch;
+    
+    register_file register_file_instance(
+    .clk(clk),
+    .addr1(rs1),
+    .addr2(rs2),
+    .writeAddr(wb_rd),
+    .writeData(WriteBackData),
+    .write(wb_RegWrite),
+    .read1(readReg1),
+    .read2(readReg2)
+    );
+    
+    //Refere to RISC-V website for opcode
+    always_comb begin
+        id_ALUCtrl = ALU_ADD;
+        id_Branch = 1'b0;
+        id_MemRead = 1'b0;
+        id_MemWrite = 1'b0;
+        id_RegWrite = 1'b0;
+        id_ALUSrc = 1'b0;
+        id_MemtoReg = 1'b0;
+        case(opcode)
+            7'b0110011: 
+                begin
+                    id_ALUSrc = 1'b0; //Register ALU(same as R type instruction)
+                    id_MemtoReg = 1'b0;
+                    id_RegWrite = 1'b1;
+                    case(instruction[14:12])
+                        3'b000:
+                            begin
+                                if(instruction[30] == 1'b1) id_ALUCtrl = ALU_SUB; //ALU subtract
+                                else id_ALUCtrl = ALU_ADD; //ALU add
+                            end
+                        3'b001: id_ALUCtrl = 4'b0111; //SLL
+                        3'b010: id_ALUCtrl = 4'b0101; //SLT
+                        3'b100: id_ALUCtrl = 4'b0100; //XOR
+                        3'b101: 
+                            begin
+                                if(instruction[30] == 1'b1) id_ALUCtrl = 4'b1001; //SRA
+                                else id_ALUCtrl = 4'b1000; //SRL
+                            end
+                        3'b110: id_ALUCtrl = 4'b0011; //Or
+                        3'b111: id_ALUCtrl = 4'b0010; //And
+                        default: id_ALUCtrl = ALU_ADD;
+                    endcase
+                end
+            7'b0010011: 
+                begin
+                    id_ALUSrc = 1'b1; //Immediate ALU
+                    id_MemtoReg = 1'b0;
+                    id_RegWrite = 1'b1;
+                    //The bottom ALUCtrl determine the immediaate add, etc.
+                    case(instruction[14:12])
+                        3'b000: id_ALUCtrl = ALU_ADD;
+                        3'b001: id_ALUCtrl = 4'b0111;
+                        3'b010: id_ALUCtrl = 4'b0101;
+                        3'b100: id_ALUCtrl = 4'b0100;
+                        3'b101:
+                            begin
+                                if(instruction[30] == 1'b1) id_ALUCtrl = 4'b1001;
+                                else id_ALUCtrl = 4'b1000;
+                            end
+                        3'b110: id_ALUCtrl = 4'b0011;
+                        3'b111: id_ALUCtrl = 4'b0010;
+                        default: id_ALUCtrl = ALU_ADD;
+                    endcase
+                end
+            7'b0000011: 
+                begin 
+                    id_ALUSrc = 1'b1; //load 
+                    id_MemtoReg = 1'b1;
+                    id_ALUCtrl = ALU_ADD;
+                    id_MemRead = 1'b1;
+                    id_MemWrite = 1'b0;
+                    id_RegWrite = 1'b1;
+                end 
+            7'b0100011:
+                begin
+                    id_ALUSrc = 1'b1; //store
+                    id_MemtoReg = 1'b0;
+                    id_ALUCtrl = ALU_ADD;
+                    id_MemWrite = 1'b1;
+                end
+            7'b1100011: 
+                begin
+                    id_ALUSrc = 1'b0; //branch
+                    id_MemtoReg = 1'b0;
+                    id_ALUCtrl = ALU_SUB;
+                    id_Branch = 1'b1;
+                end
+            default: 
+                begin
+                    id_ALUSrc = 1'b0;
+                    id_MemtoReg = 1'b0;
+                    id_ALUCtrl = ALU_ADD;
+                end
+        endcase
+    end
+    
+    //Clock update
+    always_ff@(posedge clk) begin
+        if(rst)begin
+            if_PC <= INITIAL_PC;
+            id_PC <= INITIAL_PC;
+            ex_PC <= INITIAL_PC;
+            immEX <= 0;
+            ex_imm_branch <= 0;
+            ex_rd <= 0;
+            ex_ALUSrc <= 0;
+            ex_ALUCtrl <= 0;
+            ex_Branch <= 0;
+            ex_MemRead <= 0;
+            ex_MemWrite <= 0;
+            ex_RegWrite <= 0;
+            ex_MemtoReg <= 0;
+            mem_Branch <= 0;
+            mem_MemRead <= 0;
+            mem_MemWrite <= 0;
+            mem_RegWrite <= 0;
+            mem_MemtoReg <= 0;
+            mem_alu_result <= 0;
+            mem_zero <= 0;
+            mem_branch_target <= 0;
+            mem_write_data <= 0;
+            mem_rd <= 0;
+            wb_alu_result <= 0;
+            wb_RegWrite <= 0;
+            wb_MemtoReg <= 0;
+            wb_rd <= 0;
+            
+        end
+        else begin
+            if_PC <= next_PC;
+            id_PC <= if_PC;
+            ex_PC <= id_PC;
+            immEX <= selectedImmediate;
+            ex_imm_branch <= immSBranch;
+            ex_rd <= rd;
+            ex_ALUSrc <= id_ALUSrc;
+            ex_ALUCtrl <= id_ALUCtrl;
+            ex_Branch <= id_Branch;
+            ex_MemRead <= id_MemRead;
+            ex_MemWrite <= id_MemWrite;
+            ex_RegWrite <= id_RegWrite;
+            ex_MemtoReg <= id_MemtoReg;
+            mem_Branch <= ex_Branch;
+            mem_MemRead <= ex_MemRead;
+            mem_MemWrite <= ex_MemWrite;
+            mem_RegWrite <= ex_RegWrite;
+            mem_MemtoReg <= ex_MemtoReg;
+            mem_alu_result <= ex_alu_result;
+            mem_zero <= ex_zero;
+            mem_branch_target <= ex_branch_target;
+            mem_write_data <= readReg2;
+            mem_rd <= ex_rd;
+            wb_alu_result <= mem_alu_result;
+            wb_RegWrite <= mem_RegWrite;
+            wb_MemtoReg <= mem_MemtoReg;
+            wb_rd <= mem_rd;
+            
+        end
+    end
+    
+    //connect Mem state to memory
+    assign dAddress = mem_alu_result;
+    assign dWriteData = mem_write_data;
+    assign MemRead = mem_MemRead;
+    assign MemWrite = mem_MemWrite;
+    
+    //Write back MUX to load either memory data to register file or alu result
+    always_comb begin
+        if(wb_MemtoReg) WriteBackData = dReadData;
+        else WriteBackData = wb_alu_result;
+    end
+    
+endmodule
