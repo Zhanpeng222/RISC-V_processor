@@ -1,3 +1,8 @@
 RISC-V processor project
 
-Currently in progress to complete
+
+
+To run the single-cycle, only the control unit, datapath, register file, and alu are needed.
+
+Multicycle with no forwarding or hazard only need the pipeline, register file, and alu.
+
