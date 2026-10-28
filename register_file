@@ -20,8 +20,14 @@ module register_file(
     end
     
     always_ff@(posedge clk)begin
-        read1 <= regfile[addr1];
-        read2 <= regfile[addr2];
+        if(addr1 == 0) read1 <= 0;
+        else if(write && (writeAddr == addr1)) read1 <= writeData;
+        else read1 <= regfile[addr1];
+        
+        if(addr2 == 0) read2 <= 0;
+        else if(write && (writeAddr == addr2)) read2 <= writeData;
+        else read2 <= regfile[addr2];
+        
         if(write && (writeAddr != 0))begin
             regfile[writeAddr] <= writeData;
         end
